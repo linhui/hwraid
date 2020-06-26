@@ -6,9 +6,10 @@
 #
 
 import os
+import subprocess
 import re
 import sys
-import pdb
+#import pdb
 import inspect
 if sys.platform == 'win32':
 	import ctypes
@@ -49,14 +50,15 @@ def print_usage():
 	print 'Usage: megaraid-status [--nagios|--debug|--notemp]'
 
 # We need root access to query
-if __name__ == '__main__':
-	try:
-		root_or_admin = os.geteuid() == 0
-	except AttributeError:
-		root_or_admin = ctypes.windll.shell32.IsUserAnAdmin() !=0
-	if not root_or_admin:
-		print '# This script requires Administrator privileges'
-		sys.exit(5)
+# check privileges after get full path, linhui, 2020/06/25
+# if __name__ == '__main__':
+# 	try:
+# 		root_or_admin = os.geteuid() == 0
+# 	except AttributeError:
+# 		root_or_admin = ctypes.windll.shell32.IsUserAnAdmin() !=0
+# 	if not root_or_admin:
+# 		print '# This script requires Administrator privileges'
+# 		sys.exit(5)
 
 # Check command line arguments to enable nagios or not
 if len(sys.argv) > 2:
@@ -104,6 +106,8 @@ def which(program):
 				return exe_file
 	return None
 
+
+
 # Find MegaCli
 for megabin in "MegaCli64","MegaCli","megacli", "MegaCli.exe", "perccli64", "perccli", "storcli64", "storcli":
 	dbgprint ('Looking for '+str(megabin)+' in PATH...')
@@ -126,6 +130,32 @@ else:
 	print 'Cannot find "MegaCli{64,}", "megacli{64,}", "perccli{64,}" or "storcli{64,}" in your PATH. Please install one of them.'
 	sys.exit(3)
 
+def is_root():
+	try:
+		root_or_admin = os.geteuid() == 0
+	except AttributeError:
+		root_or_admin = ctypes.windll.shell32.IsUserAnAdmin() !=0
+	return root_or_admin
+
+def can_sudo():
+	ret = 0
+	try:
+		FNULL = open(os.devnull, 'w')
+		ret = subprocess.check_call("sudo -l '%s'" % megaclipath, stdout=FNULL, shell=True)
+	except subprocess.CalledProcessError, exc:
+		print 'returncode:', exc.returncode
+		print 'cmd:', exc.cmd
+		print 'output:', exc.output
+	return ret==0
+
+# should root privileges to run this script,linhui, 2020/06/25
+is_root=is_root()
+can_sudo=can_sudo()
+if (megaclipath != None):
+	if not is_root:
+		if not can_sudo:
+			print '# This script requires Administrator privileges'
+			sys.exit(5)
 
 #### pdb.set_trace()
 
@@ -144,7 +174,14 @@ def getOutput(cmd):
 		lines = Outputs[cmd]
 	else:
 		dbgprint ("Not a Cached value: "+str(cmd))
-		output = os.popen(cmd)
+		if (is_root):
+			output = os.popen(cmd)
+		else:
+			if (can_sudo):
+				output = os.popen("sudo "+cmd)
+			else:
+				print '# This script requires Root/Administrator privileges'
+				sys.exit(5)
 		for line in output:
 			if not re.match(r'^$',line.strip()):
 				lines.append(line.strip())
